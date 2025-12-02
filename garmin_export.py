@@ -2,8 +2,6 @@ import logging
 import os
 import datetime
 import csv
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 from garminconnect import Garmin
 
 # Configure logging
@@ -175,14 +173,9 @@ def download_gps_track(client, activity_id, gps_dir):
         logger.debug(f"Could not download GPS track for activity {activity_id}: {e}")
         return None
 
-def enhance_activity_worker(args):
-    """Worker function for parallel activity enhancement."""
-    username, password, activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, gps_tracks_dir, output_file, existing = args
+def enhance_activity(client, activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, gps_tracks_dir, output_file, existing):
+    """Enhance a single activity with additional data using the provided client."""
     try:
-        # Create a new client for this thread
-        client = Garmin(username, password)
-        client.login()
-        
         enhanced_activity = activity.copy()
         
         # Fetch health metrics if needed
@@ -225,7 +218,7 @@ def enhance_activity_worker(args):
         # Return existing or base activity on error
         return existing if existing else activity
 
-def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks", max_workers=5):
+def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks"):
     """
     Fetches activities from Garmin Connect and saves them to a CSV file.
     Includes health metrics, training readiness, and GPS tracks.
@@ -236,7 +229,6 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         password: Garmin Connect password
         output_file: Path to output CSV file
         gps_tracks_dir: Directory for GPS track files (default: "gps_tracks")
-        max_workers: Number of parallel workers for fetching data (default: 5)
     """
     try:
         logger.info("Authenticating with Garmin Connect...")
@@ -297,36 +289,28 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
                 ))
         
         logger.info(f"Processing {len(activities_to_process)} activities ({new_count} new, {updated_count} updates)...")
-        logger.info(f"Using {max_workers} parallel workers for faster downloads.")
+        logger.info("Using sequential processing to avoid authentication issues.")
         
-        # Prepare arguments for parallel processing
-        process_args = [
-            (username, password, activity, needs_health, needs_readiness, needs_gps,
-             activity_date, activity_id, gps_tracks_dir, output_file, existing)
-            for activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, existing
-            in activities_to_process
-        ]
-        
-        # Process activities in parallel
+        # Process activities sequentially
         processed_activities = []
         completed = 0
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_id = {executor.submit(enhance_activity_worker, args): args[6] 
-                           for args in process_args}
-            
-            # Process completed tasks
-            for future in as_completed(future_to_id):
-                activity_id = future_to_id[future]
-                try:
-                    enhanced_activity = future.result()
-                    processed_activities.append(enhanced_activity)
-                    completed += 1
-                    if completed % 10 == 0:
-                        logger.info(f"Processed {completed}/{len(activities_to_process)} activities...")
-                except Exception as e:
-                    logger.error(f"Error processing activity {activity_id}: {e}")
+        for args in activities_to_process:
+            activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, existing = args
+            try:
+                enhanced = enhance_activity(
+                    client, activity, needs_health, needs_readiness, needs_gps,
+                    activity_date, activity_id, gps_tracks_dir, output_file, existing
+                )
+                processed_activities.append(enhanced)
+                completed += 1
+                if completed % 5 == 0:
+                    logger.info(f"Processed {completed}/{len(activities_to_process)} activities...")
+            except Exception as e:
+                logger.error(f"Error processing activity {activity_id}: {e}")
+                # Keep existing if available
+                if existing:
+                    processed_activities.append(existing)
         
         # Combine existing and processed activities
         enhanced_activities.extend(processed_activities)
@@ -352,14 +336,9 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         logger.error(f"Error during Garmin export: {e}")
         raise
 
-def fetch_daily_health_worker(args):
-    """Worker function for parallel health data fetching."""
-    username, password, date_str, existing_record = args
+def fetch_daily_health(client, date_str, existing_record):
+    """Fetch daily health data for a specific date using the provided client."""
     try:
-        # Create a new client for this thread (clients may not be thread-safe)
-        client = Garmin(username, password)
-        client.login()
-        
         daily_record = {'date': date_str}
         
         # Fetch health metrics
@@ -388,7 +367,7 @@ def fetch_daily_health_worker(args):
         # Return existing record or empty record on error
         return existing_record if existing_record else {'date': date_str}
 
-def export_daily_health_data(username, password, output_file, start_date="2000-01-01", end_date=None, max_workers=5):
+def export_daily_health_data(username, password, output_file, start_date="2000-01-01", end_date=None):
     """
     Export daily health metrics for all dates (not just activity days).
     This includes sleep, stress, body battery, resting heart rate, and steps for every day.
@@ -399,16 +378,14 @@ def export_daily_health_data(username, password, output_file, start_date="2000-0
         output_file: Path to output CSV file
         start_date: Start date in YYYY-MM-DD format (default: "2000-01-01")
         end_date: End date in YYYY-MM-DD format (default: today)
-        max_workers: Number of parallel workers for fetching data (default: 5)
     """
     if end_date is None:
         end_date = datetime.date.today().isoformat()
     
     try:
         logger.info("Authenticating with Garmin Connect...")
-        # Test authentication
-        test_client = Garmin(username, password)
-        test_client.login()
+        client = Garmin(username, password)
+        client.login()
         logger.info("Authentication successful.")
 
         # Load existing data if it exists
@@ -428,7 +405,7 @@ def export_daily_health_data(username, password, output_file, start_date="2000-0
             current_date += datetime.timedelta(days=1)
         
         logger.info(f"Fetching health data for {len(all_dates)} days from {start_date} to {end_date}...")
-        logger.info(f"Using {max_workers} parallel workers for faster downloads.")
+        logger.info("Using sequential processing to avoid authentication issues.")
         
         # Create a map of existing data by date
         existing_map = {row.get('date'): row for row in existing_data if row.get('date')}
@@ -458,33 +435,20 @@ def export_daily_health_data(username, password, output_file, start_date="2000-0
         logger.info(f"Skipping {skipped_count} dates with existing data.")
         logger.info(f"Fetching {len(dates_to_fetch)} dates ({new_count} new, {updated_count} updates)...")
         
-        # Prepare arguments for parallel processing
-        fetch_args = [(username, password, date_str, existing_record) 
-                     for date_str, existing_record in dates_to_fetch]
-        
-        # Process dates in parallel
+        # Process dates sequentially
         fetched_records = []
         completed = 0
-        lock = Lock()
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_date = {executor.submit(fetch_daily_health_worker, args): args[2] 
-                             for args in fetch_args}
-            
-            # Process completed tasks
-            for future in as_completed(future_to_date):
-                date_str = future_to_date[future]
-                try:
-                    record = future.result()
-                    fetched_records.append(record)
-                    completed += 1
-                    if completed % 50 == 0:
-                        logger.info(f"Fetched {completed}/{len(dates_to_fetch)} dates...")
-                except Exception as e:
-                    logger.error(f"Error processing {date_str}: {e}")
-                    # Add empty record on error
-                    fetched_records.append({'date': date_str})
+        for date_str, existing_record in dates_to_fetch:
+            try:
+                record = fetch_daily_health(client, date_str, existing_record)
+                fetched_records.append(record)
+                completed += 1
+                if completed % 10 == 0:
+                    logger.info(f"Fetched {completed}/{len(dates_to_fetch)} dates...")
+            except Exception as e:
+                logger.error(f"Error processing {date_str}: {e}")
+                fetched_records.append({'date': date_str})
         
         # Combine existing and fetched records, sort by date
         daily_records.extend(fetched_records)
