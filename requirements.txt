@@ -1,0 +1,9 @@
+garminconnect
+garminconnect
+streamlit
+pandas
+plotly
+opencv-python
+dlib
+numpy
+Pillow
