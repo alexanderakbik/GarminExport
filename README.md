@@ -54,14 +54,26 @@ Run the main export script:
 python main.py
 ```
 
-You'll be prompted for your Garmin Connect username and password. The script will:
-- Fetch all activities from Garmin Connect
-- Download health metrics for each activity date
-- Download training readiness data
-- Download GPS tracks (if available)
-- Save everything to `garmin_stats.csv`
+You'll be prompted to choose what to export:
+1. **Activities with health metrics** - Exports activities with health data for activity days only
+2. **Daily health data** - Exports health metrics for ALL days (including rest days without activities)
+3. **Both** - Exports both datasets
+
+**Activities Export** (`garmin_stats.csv`):
+- Fetches all activities from Garmin Connect
+- Downloads health metrics for each activity date
+- Downloads training readiness data
+- Downloads GPS tracks (if available)
+
+**Daily Health Data Export** (`garmin_daily_health.csv`):
+- Exports health metrics for every day in the specified date range
+- Includes sleep, stress, body battery, resting heart rate, and steps
+- Includes training readiness scores
+- Useful for analyzing rest days and overall health trends
 
 #### Advanced Export (Programmatic)
+
+**Export Activities:**
 ```python
 from garmin_export import export_garmin_data
 
@@ -73,12 +85,32 @@ export_garmin_data(
 )
 ```
 
+**Export Daily Health Data (All Days):**
+```python
+from garmin_export import export_daily_health_data
+
+export_daily_health_data(
+    username="your_username",
+    password="your_password",
+    output_file="garmin_daily_health.csv",
+    start_date="2000-01-01",  # Optional: start date
+    end_date=None  # Optional: end date (default: today)
+)
+```
+
 #### Incremental Updates
-The export script automatically detects existing data and only downloads:
+Both export functions support incremental updates and automatically detect existing data:
+
+**Activities Export** only downloads:
 - New activities not in the CSV
 - Missing health metrics for existing activities
 - Missing training readiness for existing activities
 - Missing GPS tracks for existing activities
+
+**Daily Health Data Export** only downloads:
+- New dates not in the CSV
+- Missing health metrics for existing dates
+- Missing training readiness for existing dates
 
 This makes subsequent runs much faster and API-friendly.
 
@@ -109,6 +141,7 @@ GarminExport/
 ├── inspect_data.py          # Utility script to inspect Garmin API data
 ├── requirements.txt         # Python dependencies
 ├── garmin_stats.csv         # Exported activity data (generated)
+├── garmin_daily_health.csv  # Daily health metrics for all days (generated)
 ├── gps_tracks/              # GPS track files directory (generated)
 └── README.md               # This file
 ```
@@ -124,14 +157,19 @@ GarminExport/
 - Training effect and load
 - Location and device information
 
-### Health Metrics (New)
+### Health Metrics
+Available in both activity export and daily health export:
 - **Sleep**: Duration, deep/light/REM/awake sleep, sleep quality
 - **Stress**: Average, max, time in stress zones
 - **Body Battery**: Average, max, min levels
 - **Resting Heart Rate**: Daily RHR
-- **Daily Steps**: Step count for activity date
+- **Daily Steps**: Step count
 
-### Training Readiness (New)
+**Note**: 
+- Activity export includes health metrics for activity days only
+- Daily health export includes health metrics for ALL days (including rest days)
+
+### Training Readiness
 - Training readiness score
 - Training status and status text
 

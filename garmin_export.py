@@ -289,3 +289,122 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
     except Exception as e:
         logger.error(f"Error during Garmin export: {e}")
         raise
+
+def export_daily_health_data(username, password, output_file, start_date="2000-01-01", end_date=None):
+    """
+    Export daily health metrics for all dates (not just activity days).
+    This includes sleep, stress, body battery, resting heart rate, and steps for every day.
+    
+    Args:
+        username: Garmin Connect username
+        password: Garmin Connect password
+        output_file: Path to output CSV file
+        start_date: Start date in YYYY-MM-DD format (default: "2000-01-01")
+        end_date: End date in YYYY-MM-DD format (default: today)
+    """
+    if end_date is None:
+        end_date = datetime.date.today().isoformat()
+    
+    try:
+        logger.info("Authenticating with Garmin Connect...")
+        client = Garmin(username, password)
+        client.login()
+        logger.info("Authentication successful.")
+
+        # Load existing data if it exists
+        existing_data = load_existing_csv(output_file)
+        existing_dates = {row.get('date') for row in existing_data if row.get('date')}
+        logger.info(f"Found {len(existing_data)} existing daily records in CSV.")
+
+        # Parse date range
+        start = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # Generate all dates in range
+        all_dates = []
+        current_date = start
+        while current_date <= end:
+            all_dates.append(current_date.isoformat())
+            current_date += datetime.timedelta(days=1)
+        
+        logger.info(f"Fetching health data for {len(all_dates)} days from {start_date} to {end_date}...")
+        
+        # Create a map of existing data by date
+        existing_map = {row.get('date'): row for row in existing_data if row.get('date')}
+        
+        # Process each date
+        daily_records = []
+        new_count = 0
+        updated_count = 0
+        skipped_count = 0
+        
+        for i, date_str in enumerate(all_dates):
+            # Check if we already have complete data for this date
+            if date_str in existing_map:
+                existing = existing_map[date_str]
+                # Check if it has health metrics
+                if has_health_metrics(existing):
+                    # Use existing data
+                    daily_records.append(existing)
+                    skipped_count += 1
+                    if (i + 1) % 100 == 0:
+                        logger.info(f"Processed {i+1}/{len(all_dates)} dates (skipped {skipped_count} with existing data)...")
+                    continue
+                else:
+                    updated_count += 1
+            else:
+                new_count += 1
+            
+            if (i + 1) % 50 == 0:
+                logger.info(f"Processing date {i+1}/{len(all_dates)}: {date_str}...")
+            
+            # Create daily record
+            daily_record = {'date': date_str}
+            
+            # Fetch health metrics
+            try:
+                health_metrics = get_health_metrics(client, date_str)
+                daily_record.update(health_metrics)
+            except Exception as e:
+                logger.debug(f"Could not fetch health metrics for {date_str}: {e}")
+            
+            # Fetch training readiness
+            try:
+                readiness = get_training_readiness(client, date_str)
+                daily_record.update(readiness)
+            except Exception as e:
+                logger.debug(f"Could not fetch training readiness for {date_str}: {e}")
+            
+            # If updating existing, merge with existing data
+            if date_str in existing_map:
+                existing = existing_map[date_str]
+                for key, value in existing.items():
+                    if key not in daily_record or not daily_record[key]:
+                        daily_record[key] = value
+            
+            daily_records.append(daily_record)
+        
+        logger.info(f"Processed {new_count} new dates and updated {updated_count} existing dates.")
+        
+        # Collect all unique keys for CSV headers
+        keys = set()
+        for record in daily_records:
+            keys.update(record.keys())
+        fieldnames = sorted(list(keys))
+        # Ensure 'date' is first
+        if 'date' in fieldnames:
+            fieldnames.remove('date')
+            fieldnames.insert(0, 'date')
+
+        logger.info(f"Saving to {output_file}...")
+        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+            writer.writeheader()
+            writer.writerows(daily_records)
+        
+        logger.info(f"Daily health data export complete. Total records: {len(daily_records)}")
+        logger.info(f"New: {new_count}, Updated: {updated_count}, Unchanged: {skipped_count}")
+
+    except Exception as e:
+        logger.error(f"Error during daily health data export: {e}")
+        raise
