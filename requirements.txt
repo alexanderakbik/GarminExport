@@ -1,9 +1,5 @@
-garminconnect
-garminconnect
-streamlit
-pandas
-plotly
-opencv-python
-dlib
-numpy
-Pillow
+garminconnect==0.2.11
+streamlit==1.39.0
+pandas==2.2.3
+plotly==5.24.1
+numpy==1.26.4
