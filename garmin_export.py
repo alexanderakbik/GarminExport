@@ -2,6 +2,8 @@ import logging
 import os
 import datetime
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from garminconnect import Garmin
 
 # Configure logging
@@ -173,11 +175,68 @@ def download_gps_track(client, activity_id, gps_dir):
         logger.debug(f"Could not download GPS track for activity {activity_id}: {e}")
         return None
 
-def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks"):
+def enhance_activity_worker(args):
+    """Worker function for parallel activity enhancement."""
+    username, password, activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, gps_tracks_dir, output_file, existing = args
+    try:
+        # Create a new client for this thread
+        client = Garmin(username, password)
+        client.login()
+        
+        enhanced_activity = activity.copy()
+        
+        # Fetch health metrics if needed
+        if needs_health and activity_date:
+            try:
+                health_metrics = get_health_metrics(client, activity_date)
+                enhanced_activity.update(health_metrics)
+            except Exception as e:
+                logger.debug(f"Could not fetch health metrics for {activity_date}: {e}")
+        
+        # Fetch training readiness if needed
+        if needs_readiness and activity_date:
+            try:
+                readiness = get_training_readiness(client, activity_date)
+                enhanced_activity.update(readiness)
+            except Exception as e:
+                logger.debug(f"Could not fetch training readiness for {activity_date}: {e}")
+        
+        # Download GPS track if needed
+        if needs_gps and activity_id:
+            try:
+                gps_file = download_gps_track(client, activity_id, gps_tracks_dir)
+                if gps_file:
+                    enhanced_activity['gpsTrackFile'] = os.path.relpath(gps_file, os.path.dirname(output_file))
+                else:
+                    enhanced_activity['gpsTrackFile'] = None
+            except Exception as e:
+                logger.debug(f"Could not download GPS track for {activity_id}: {e}")
+                enhanced_activity['gpsTrackFile'] = None
+        
+        # Merge with existing data if updating
+        if existing:
+            for key, value in existing.items():
+                if key not in enhanced_activity or not enhanced_activity[key]:
+                    enhanced_activity[key] = value
+        
+        return enhanced_activity
+    except Exception as e:
+        logger.error(f"Error enhancing activity {activity_id}: {e}")
+        # Return existing or base activity on error
+        return existing if existing else activity
+
+def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks", max_workers=5):
     """
     Fetches activities from Garmin Connect and saves them to a CSV file.
     Includes health metrics, training readiness, and GPS tracks.
     Only downloads missing data (delta updates).
+    
+    Args:
+        username: Garmin Connect username
+        password: Garmin Connect password
+        output_file: Path to output CSV file
+        gps_tracks_dir: Directory for GPS track files (default: "gps_tracks")
+        max_workers: Number of parallel workers for fetching data (default: 5)
     """
     try:
         logger.info("Authenticating with Garmin Connect...")
@@ -201,12 +260,13 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         # Create a map of existing activities by ID for easy lookup
         existing_map = {a.get('activityId'): a for a in existing_activities if a.get('activityId')}
         
-        # Process activities and enhance with missing data
+        # Separate activities that need processing from those that are complete
+        activities_to_process = []
         enhanced_activities = []
         new_count = 0
         updated_count = 0
         
-        for i, activity in enumerate(activities):
+        for activity in activities:
             activity_id = str(activity.get('activityId', ''))
             
             # Check if this is a new activity or needs updates
@@ -219,55 +279,57 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
                 
                 if needs_health or needs_readiness or needs_gps:
                     updated_count += 1
-                    logger.info(f"Updating activity {activity_id} ({i+1}/{len(activities)})...")
+                    activity_date = get_activity_date(activity)
+                    activities_to_process.append((
+                        activity, needs_health, needs_readiness, needs_gps,
+                        activity_date, activity_id, existing
+                    ))
                 else:
                     # Use existing data as-is
                     enhanced_activities.append(existing)
-                    continue
             else:
                 # New activity
                 new_count += 1
-                logger.info(f"Processing new activity {activity_id} ({i+1}/{len(activities)})...")
-                needs_health = True
-                needs_readiness = True
-                needs_gps = activity.get('hasPolyline', False)
+                activity_date = get_activity_date(activity)
+                activities_to_process.append((
+                    activity, True, True, activity.get('hasPolyline', False),
+                    activity_date, activity_id, None
+                ))
+        
+        logger.info(f"Processing {len(activities_to_process)} activities ({new_count} new, {updated_count} updates)...")
+        logger.info(f"Using {max_workers} parallel workers for faster downloads.")
+        
+        # Prepare arguments for parallel processing
+        process_args = [
+            (username, password, activity, needs_health, needs_readiness, needs_gps,
+             activity_date, activity_id, gps_tracks_dir, output_file, existing)
+            for activity, needs_health, needs_readiness, needs_gps, activity_date, activity_id, existing
+            in activities_to_process
+        ]
+        
+        # Process activities in parallel
+        processed_activities = []
+        completed = 0
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_id = {executor.submit(enhance_activity_worker, args): args[6] 
+                           for args in process_args}
             
-            # Start with base activity data
-            enhanced_activity = activity.copy()
-            
-            # Get activity date for health metrics
-            activity_date = get_activity_date(activity)
-            
-            # Fetch health metrics if needed
-            if needs_health and activity_date:
-                logger.debug(f"Fetching health metrics for {activity_date}...")
-                health_metrics = get_health_metrics(client, activity_date)
-                enhanced_activity.update(health_metrics)
-            
-            # Fetch training readiness if needed
-            if needs_readiness and activity_date:
-                logger.debug(f"Fetching training readiness for {activity_date}...")
-                readiness = get_training_readiness(client, activity_date)
-                enhanced_activity.update(readiness)
-            
-            # Download GPS track if needed
-            if needs_gps and activity_id:
-                logger.debug(f"Downloading GPS track for activity {activity_id}...")
-                gps_file = download_gps_track(client, activity_id, gps_tracks_dir)
-                if gps_file:
-                    enhanced_activity['gpsTrackFile'] = os.path.relpath(gps_file, os.path.dirname(output_file))
-                else:
-                    enhanced_activity['gpsTrackFile'] = None
-            
-            # If updating existing, merge with existing data
-            if activity_id in existing_map:
-                existing = existing_map[activity_id]
-                # Preserve existing fields that might not be in new data
-                for key, value in existing.items():
-                    if key not in enhanced_activity or not enhanced_activity[key]:
-                        enhanced_activity[key] = value
-            
-            enhanced_activities.append(enhanced_activity)
+            # Process completed tasks
+            for future in as_completed(future_to_id):
+                activity_id = future_to_id[future]
+                try:
+                    enhanced_activity = future.result()
+                    processed_activities.append(enhanced_activity)
+                    completed += 1
+                    if completed % 10 == 0:
+                        logger.info(f"Processed {completed}/{len(activities_to_process)} activities...")
+                except Exception as e:
+                    logger.error(f"Error processing activity {activity_id}: {e}")
+        
+        # Combine existing and processed activities
+        enhanced_activities.extend(processed_activities)
         
         logger.info(f"Processed {new_count} new activities and updated {updated_count} existing activities.")
         
@@ -290,7 +352,43 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         logger.error(f"Error during Garmin export: {e}")
         raise
 
-def export_daily_health_data(username, password, output_file, start_date="2000-01-01", end_date=None):
+def fetch_daily_health_worker(args):
+    """Worker function for parallel health data fetching."""
+    username, password, date_str, existing_record = args
+    try:
+        # Create a new client for this thread (clients may not be thread-safe)
+        client = Garmin(username, password)
+        client.login()
+        
+        daily_record = {'date': date_str}
+        
+        # Fetch health metrics
+        try:
+            health_metrics = get_health_metrics(client, date_str)
+            daily_record.update(health_metrics)
+        except Exception as e:
+            logger.debug(f"Could not fetch health metrics for {date_str}: {e}")
+        
+        # Fetch training readiness
+        try:
+            readiness = get_training_readiness(client, date_str)
+            daily_record.update(readiness)
+        except Exception as e:
+            logger.debug(f"Could not fetch training readiness for {date_str}: {e}")
+        
+        # Merge with existing data if updating
+        if existing_record:
+            for key, value in existing_record.items():
+                if key not in daily_record or not daily_record[key]:
+                    daily_record[key] = value
+        
+        return daily_record
+    except Exception as e:
+        logger.error(f"Error fetching data for {date_str}: {e}")
+        # Return existing record or empty record on error
+        return existing_record if existing_record else {'date': date_str}
+
+def export_daily_health_data(username, password, output_file, start_date="2000-01-01", end_date=None, max_workers=5):
     """
     Export daily health metrics for all dates (not just activity days).
     This includes sleep, stress, body battery, resting heart rate, and steps for every day.
@@ -301,14 +399,16 @@ def export_daily_health_data(username, password, output_file, start_date="2000-0
         output_file: Path to output CSV file
         start_date: Start date in YYYY-MM-DD format (default: "2000-01-01")
         end_date: End date in YYYY-MM-DD format (default: today)
+        max_workers: Number of parallel workers for fetching data (default: 5)
     """
     if end_date is None:
         end_date = datetime.date.today().isoformat()
     
     try:
         logger.info("Authenticating with Garmin Connect...")
-        client = Garmin(username, password)
-        client.login()
+        # Test authentication
+        test_client = Garmin(username, password)
+        test_client.login()
         logger.info("Authentication successful.")
 
         # Load existing data if it exists
@@ -328,61 +428,67 @@ def export_daily_health_data(username, password, output_file, start_date="2000-0
             current_date += datetime.timedelta(days=1)
         
         logger.info(f"Fetching health data for {len(all_dates)} days from {start_date} to {end_date}...")
+        logger.info(f"Using {max_workers} parallel workers for faster downloads.")
         
         # Create a map of existing data by date
         existing_map = {row.get('date'): row for row in existing_data if row.get('date')}
         
-        # Process each date
+        # Separate dates that need fetching from those that are complete
+        dates_to_fetch = []
         daily_records = []
-        new_count = 0
-        updated_count = 0
         skipped_count = 0
         
-        for i, date_str in enumerate(all_dates):
-            # Check if we already have complete data for this date
+        for date_str in all_dates:
             if date_str in existing_map:
                 existing = existing_map[date_str]
-                # Check if it has health metrics
                 if has_health_metrics(existing):
                     # Use existing data
                     daily_records.append(existing)
                     skipped_count += 1
-                    if (i + 1) % 100 == 0:
-                        logger.info(f"Processed {i+1}/{len(all_dates)} dates (skipped {skipped_count} with existing data)...")
-                    continue
                 else:
-                    updated_count += 1
+                    # Needs update
+                    dates_to_fetch.append((date_str, existing))
             else:
-                new_count += 1
+                # New date
+                dates_to_fetch.append((date_str, None))
+        
+        new_count = len([d for d in dates_to_fetch if d[1] is None])
+        updated_count = len([d for d in dates_to_fetch if d[1] is not None])
+        
+        logger.info(f"Skipping {skipped_count} dates with existing data.")
+        logger.info(f"Fetching {len(dates_to_fetch)} dates ({new_count} new, {updated_count} updates)...")
+        
+        # Prepare arguments for parallel processing
+        fetch_args = [(username, password, date_str, existing_record) 
+                     for date_str, existing_record in dates_to_fetch]
+        
+        # Process dates in parallel
+        fetched_records = []
+        completed = 0
+        lock = Lock()
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_date = {executor.submit(fetch_daily_health_worker, args): args[2] 
+                             for args in fetch_args}
             
-            if (i + 1) % 50 == 0:
-                logger.info(f"Processing date {i+1}/{len(all_dates)}: {date_str}...")
-            
-            # Create daily record
-            daily_record = {'date': date_str}
-            
-            # Fetch health metrics
-            try:
-                health_metrics = get_health_metrics(client, date_str)
-                daily_record.update(health_metrics)
-            except Exception as e:
-                logger.debug(f"Could not fetch health metrics for {date_str}: {e}")
-            
-            # Fetch training readiness
-            try:
-                readiness = get_training_readiness(client, date_str)
-                daily_record.update(readiness)
-            except Exception as e:
-                logger.debug(f"Could not fetch training readiness for {date_str}: {e}")
-            
-            # If updating existing, merge with existing data
-            if date_str in existing_map:
-                existing = existing_map[date_str]
-                for key, value in existing.items():
-                    if key not in daily_record or not daily_record[key]:
-                        daily_record[key] = value
-            
-            daily_records.append(daily_record)
+            # Process completed tasks
+            for future in as_completed(future_to_date):
+                date_str = future_to_date[future]
+                try:
+                    record = future.result()
+                    fetched_records.append(record)
+                    completed += 1
+                    if completed % 50 == 0:
+                        logger.info(f"Fetched {completed}/{len(dates_to_fetch)} dates...")
+                except Exception as e:
+                    logger.error(f"Error processing {date_str}: {e}")
+                    # Add empty record on error
+                    fetched_records.append({'date': date_str})
+        
+        # Combine existing and fetched records, sort by date
+        daily_records.extend(fetched_records)
+        daily_records.sort(key=lambda x: x.get('date', ''))
         
         logger.info(f"Processed {new_count} new dates and updated {updated_count} existing dates.")
         
