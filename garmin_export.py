@@ -1,12 +1,48 @@
+import csv
+import datetime
+import importlib
 import logging
 import os
-import datetime
-import csv
-from garminconnect import Garmin
+import subprocess
+import sys
+
+GARMINCONNECT_PACKAGE = "garminconnect"
+GARMINCONNECT_VERSION = "0.2.11"
+GARMINCONNECT_SPEC = f"{GARMINCONNECT_PACKAGE}=={GARMINCONNECT_VERSION}"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def _load_garmin_client():
+    """Ensure garminconnect is available and return the Garmin client class."""
+    try:
+        module = importlib.import_module(GARMINCONNECT_PACKAGE)
+        return getattr(module, "Garmin")
+    except ModuleNotFoundError:
+        logger.info(
+            "Missing dependency '%s'. Installing it via pip so the export can proceed...",
+            GARMINCONNECT_PACKAGE,
+        )
+        install_cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            GARMINCONNECT_SPEC,
+        ]
+        try:
+            subprocess.check_call(install_cmd)
+        except Exception as install_error:
+            raise ModuleNotFoundError(
+                f"Could not import '{GARMINCONNECT_PACKAGE}' and automatic installation "
+                f"using '{' '.join(install_cmd)}' failed. "
+                "Install the dependency manually with 'pip install -r requirements.txt'."
+            ) from install_error
+        module = importlib.import_module(GARMINCONNECT_PACKAGE)
+        return getattr(module, "Garmin")
+
+Garmin = _load_garmin_client()
 
 def load_existing_csv(output_file):
     """Load existing CSV file if it exists and return as list of dicts."""
