@@ -5,6 +5,7 @@ A comprehensive tool for exporting Garmin Connect activity data and visualizing 
 ## Features
 
 ### 📊 Data Export
+
 - **Complete Activity History**: Export all activities from Garmin Connect to CSV
 - **Health Metrics**: Sleep, stress, body battery, resting heart rate, and daily steps
 - **Training Readiness**: Training readiness scores and status
@@ -13,6 +14,7 @@ A comprehensive tool for exporting Garmin Connect activity data and visualizing 
 - **Parallel Processing**: Fast downloads using multiple concurrent workers (3-5x speedup)
 
 ### 📈 Interactive Dashboard
+
 - **Key Metrics**: Total activities, duration, distance, calories, and average heart rate
 - **Highlights**: Personal records including longest run, highest HR, fastest speed, most elevation, etc.
 - **Visualizations**:
@@ -27,6 +29,7 @@ A comprehensive tool for exporting Garmin Connect activity data and visualizing 
 ## Installation
 
 ### Prerequisites
+
 - Python 3.7 or higher
 - Garmin Connect account
 
@@ -35,38 +38,56 @@ A comprehensive tool for exporting Garmin Connect activity data and visualizing 
 1. **Clone or download this repository**
 
 2. **Create a virtual environment** (recommended):
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 3. **Install dependencies**:
+
 ```bash
 pip install -r requirements.txt
 ```
+
+4. **Configure Environment Variables (Optional)**:
+   Create a `.env` file in the project root to store your credentials:
+
+   ```env
+   GARMIN_USER=your_email@example.com
+   GARMIN_PASSWORD=your_password
+   # Or use PASSWORD=your_password
+   ```
+
+   This allows you to run the script without manually entering credentials every time.
 
 ## Usage
 
 ### Exporting Data
 
 #### Basic Export
+
 Run the main export script:
+
 ```bash
 python main.py
 ```
 
 You'll be prompted to choose what to export:
+
 1. **Activities with health metrics** - Exports activities with health data for activity days only
 2. **Daily health data** - Exports health metrics for ALL days (including rest days without activities)
 3. **Both** - Exports both datasets
 
 **Activities Export** (`garmin_stats.csv`):
+
 - Fetches all activities from Garmin Connect
 - Downloads health metrics for each activity date
 - Downloads training readiness data
 - Downloads GPS tracks (if available)
 
 **Daily Health Data Export** (`garmin_daily_health.csv`):
+
 - Exports health metrics for every day in the specified date range
 - Includes sleep, stress, body battery, resting heart rate, and steps
 - Includes training readiness scores
@@ -75,6 +96,7 @@ You'll be prompted to choose what to export:
 #### Advanced Export (Programmatic)
 
 **Export Activities:**
+
 ```python
 from garmin_export import export_garmin_data
 
@@ -88,6 +110,7 @@ export_garmin_data(
 ```
 
 **Export Daily Health Data (All Days):**
+
 ```python
 from garmin_export import export_daily_health_data
 
@@ -102,15 +125,18 @@ export_daily_health_data(
 ```
 
 #### Incremental Updates
+
 Both export functions support incremental updates and automatically detect existing data:
 
 **Activities Export** only downloads:
+
 - New activities not in the CSV
 - Missing health metrics for existing activities
 - Missing training readiness for existing activities
 - Missing GPS tracks for existing activities
 
 **Daily Health Data Export** only downloads:
+
 - New dates not in the CSV
 - Missing health metrics for existing dates
 - Missing training readiness for existing dates
@@ -118,7 +144,9 @@ Both export functions support incremental updates and automatically detect exist
 This makes subsequent runs much faster and API-friendly.
 
 #### Performance Optimization
+
 Both export functions use parallel processing with configurable worker threads:
+
 - **Default**: 5 parallel workers (good balance of speed and API friendliness)
 - **Fast mode**: Increase `max_workers` to 10-15 for faster downloads on large datasets
 - **Expected speedup**: 3-5x faster than sequential downloads
@@ -127,6 +155,7 @@ Both export functions use parallel processing with configurable worker threads:
 ### Running the Dashboard
 
 1. **Start the Streamlit dashboard**:
+
 ```bash
 streamlit run dashboard.py
 ```
@@ -159,6 +188,7 @@ GarminExport/
 ## Data Exported
 
 ### Activity Data
+
 - Basic info: Activity name, type, ID, dates/times
 - Performance: Duration, distance, calories, pace, speed
 - Heart rate: Average, max, time in zones
@@ -168,22 +198,27 @@ GarminExport/
 - Location and device information
 
 ### Health Metrics
+
 Available in both activity export and daily health export:
+
 - **Sleep**: Duration, deep/light/REM/awake sleep, sleep quality
 - **Stress**: Average, max, time in stress zones
 - **Body Battery**: Average, max, min levels
 - **Resting Heart Rate**: Daily RHR
 - **Daily Steps**: Step count
 
-**Note**: 
+**Note**:
+
 - Activity export includes health metrics for activity days only
 - Daily health export includes health metrics for ALL days (including rest days)
 
 ### Training Readiness
+
 - Training readiness score
 - Training status and status text
 
 ### GPS Tracks (New)
+
 - GPS track files downloaded as GPX (or TCX) format
 - File paths stored in CSV column `gpsTrackFile`
 - Only downloaded for activities with GPS data
@@ -191,7 +226,9 @@ Available in both activity export and daily health export:
 ## Dashboard Features
 
 ### Key Metrics
+
 Displays aggregate statistics for filtered activities:
+
 - Total activities count
 - Total duration (hours and minutes)
 - Total distance (km)
@@ -199,7 +236,9 @@ Displays aggregate statistics for filtered activities:
 - Average heart rate
 
 ### Highlights Section
+
 Shows personal records and achievements:
+
 - **Longest Session**: Longest training session by duration
 - **Longest Run**: Longest run by distance (running activities only)
 - **Highest HR**: Maximum heart rate achieved
@@ -219,6 +258,7 @@ Each highlight shows the activity name and date.
 5. **Month-by-Month Comparison**: Grouped bar chart comparing selected months across years (with month filter)
 
 ### Filtering
+
 - **Date Range**: Filter activities by start and end date
 - **Activity Type**: Filter by activity category (Running, Cycling, Strength, etc.)
 - Filters apply to all metrics, visualizations, and data tables
@@ -226,6 +266,7 @@ Each highlight shows the activity name and date.
 ## Requirements
 
 See `requirements.txt` for full list. Main dependencies:
+
 - `garminconnect` - Garmin Connect API client
 - `streamlit` - Dashboard framework
 - `pandas` - Data manipulation
@@ -236,29 +277,36 @@ See `requirements.txt` for full list. Main dependencies:
 ### Export Issues
 
 **Authentication Failed**
+
 - Verify your Garmin Connect username and password
+- If using `.env`, ensure the variable names are correct (`GARMIN_USER` and `GARMIN_PASSWORD`)
 - Check if two-factor authentication is enabled (may require additional setup)
 
 **Missing Data**
+
 - Some activities may not have all metrics (e.g., indoor activities won't have GPS)
 - Health metrics are fetched by date - if an activity date has no health data, those fields will be empty
 - Training readiness may not be available for all dates
 
 **Slow Downloads**
+
 - GPS tracks can be large - be patient for activities with long routes
 - The incremental update feature helps speed up subsequent runs
 
 ### Dashboard Issues
 
 **CSV Upload Fails**
+
 - Ensure the CSV has a `startTimeLocal` column
 - Check that the file is a valid CSV format
 
 **No Data Showing**
+
 - Adjust date range filters - they may be too restrictive
 - Check that your CSV file has data in the selected date range
 
 **Visualizations Not Loading**
+
 - Ensure required columns exist in your CSV
 - Some visualizations require numeric data - check for missing values
 
@@ -281,4 +329,3 @@ This project is provided as-is for personal use.
 
 - Built using the [garminconnect](https://github.com/cyberjunky/python-garminconnect) Python library
 - Dashboard powered by [Streamlit](https://streamlit.io/) and [Plotly](https://plotly.com/)
-

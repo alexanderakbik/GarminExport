@@ -1,6 +1,10 @@
 import os
 import getpass
+from dotenv import load_dotenv
 from garmin_export import export_garmin_data, export_daily_health_data
+
+# Load environment variables
+load_dotenv()
 
 def main():
     print("Garmin Stats Export to CSV Tool")
@@ -12,8 +16,15 @@ def main():
     choice = input("\nEnter choice (1/2/3): ").strip()
     
     # Garmin Credentials
-    username = input("\nEnter Garmin Connect Username: ")
-    password = getpass.getpass("Enter Garmin Connect Password: ")
+    username = os.getenv("GARMIN_USER")
+    password = os.getenv("GARMIN_PASSWORD") or os.getenv("PASSWORD")
+    
+    if username and password:
+        print(f"\nUsing credentials from .env for user: {username}")
+    else:
+        print("\nCredentials not found in .env (GARMIN_USER, GARMIN_PASSWORD/PASSWORD)")
+        username = input("Enter Garmin Connect Username: ")
+        password = getpass.getpass("Enter Garmin Connect Password: ")
     
     if choice in ['1', '3']:
         # Export activities

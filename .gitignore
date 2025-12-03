@@ -35,6 +35,8 @@ ENV/
 
 # Data files (user-specific, should not be shared)
 garmin_stats.csv
+garmin_daily_health.csv
+debug_health.py
 gps_tracks/
 *.gpx
 *.tcx
