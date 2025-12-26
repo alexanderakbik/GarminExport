@@ -162,9 +162,12 @@ streamlit run dashboard.py
 
 2. **Open your browser** to the URL shown (typically `http://localhost:8501`)
 
-3. **Upload your CSV file** using the file uploader at the top
+3. **Upload your CSV files**:
+   - Upload `garmin_stats.csv` for Activity Analytics
+   - Upload `garmin_daily_health.csv` for Health Analytics
 
 4. **Explore your data**:
+   - Switch between **Activities** and **Health** tabs
    - Use sidebar filters to narrow down by date range and activity type
    - View key metrics and personal records
    - Explore visualizations and trends
@@ -257,9 +260,31 @@ Each highlight shows the activity name and date.
 4. **Year-over-Year Comparison**: Line chart comparing same months across different years
 5. **Month-by-Month Comparison**: Grouped bar chart comparing selected months across years (with month filter)
 
+### Health Dashboard (New)
+
+Navigate to the **Health** tab to analyze your daily wellness metrics:
+
+**Key Metrics**:
+
+- Average Sleep Duration & Quality
+- Average Stress Levels
+- Body Battery Trends
+- Resting Heart Rate (RHR)
+- Daily Steps
+
+**Insights**:
+
+- Automatically highlights your **Best Sleep**, **Lowest Stress**, and **Most Active** days.
+
+**Visualizations**:
+
+- **Sleep Trends**: Daily sleep duration colored by sleep quality.
+- **Stress vs Recovery**: Compare daily stress against Body Battery recharge.
+- **Heart Rate Trends**: Track your Resting Heart Rate over time.
+
 ### Filtering
 
-- **Date Range**: Filter activities by start and end date
+- **Date Range**: Filter activities and health data by start and end date
 - **Activity Type**: Filter by activity category (Running, Cycling, Strength, etc.)
 - Filters apply to all metrics, visualizations, and data tables
 
@@ -276,36 +301,36 @@ See `requirements.txt` for full list. Main dependencies:
 
 ### Export Issues
 
-**Authentication Failed**
+#### Authentication Failed
 
 - Verify your Garmin Connect username and password
 - If using `.env`, ensure the variable names are correct (`GARMIN_USER` and `GARMIN_PASSWORD`)
 - Check if two-factor authentication is enabled (may require additional setup)
 
-**Missing Data**
+#### Missing Data
 
 - Some activities may not have all metrics (e.g., indoor activities won't have GPS)
 - Health metrics are fetched by date - if an activity date has no health data, those fields will be empty
 - Training readiness may not be available for all dates
 
-**Slow Downloads**
+#### Slow Downloads
 
 - GPS tracks can be large - be patient for activities with long routes
 - The incremental update feature helps speed up subsequent runs
 
 ### Dashboard Issues
 
-**CSV Upload Fails**
+#### CSV Upload Fails
 
 - Ensure the CSV has a `startTimeLocal` column
 - Check that the file is a valid CSV format
 
-**No Data Showing**
+#### No Data Showing
 
 - Adjust date range filters - they may be too restrictive
 - Check that your CSV file has data in the selected date range
 
-**Visualizations Not Loading**
+#### Visualizations Not Loading
 
 - Ensure required columns exist in your CSV
 - Some visualizations require numeric data - check for missing values

@@ -76,9 +76,7 @@ def get_activity_date(activity):
 
 def has_health_metrics(activity):
     """Check if activity already has health metrics data."""
-    return ('sleepDuration' in activity and activity['sleepDuration']) or \
-           ('stressAvg' in activity and activity['stressAvg']) or \
-           ('bodyBatteryAvg' in activity and activity['bodyBatteryAvg'])
+    return (activity.get('sleepDuration') and activity.get('stressAvg'))
 
 def has_training_readiness(activity):
     """Check if activity already has training readiness data."""
@@ -106,7 +104,11 @@ def get_health_metrics(client, date):
                     health_data['sleepLightDuration'] = sleep.get('lightSleepSeconds', 0) / 3600 if sleep.get('lightSleepSeconds') else None
                     health_data['sleepRemDuration'] = sleep.get('remSleepSeconds', 0) / 3600 if sleep.get('remSleepSeconds') else None
                     health_data['sleepAwakeDuration'] = sleep.get('awakeSleepSeconds', 0) / 3600 if sleep.get('awakeSleepSeconds') else None
-                    health_data['sleepQuality'] = sleep.get('sleepQualityScore', None) # Note: key might be sleepQualityScore
+                    # Try to get sleep quality from sleepScores
+                    if 'sleepScores' in sleep and 'overall' in sleep['sleepScores']:
+                        health_data['sleepQuality'] = sleep['sleepScores']['overall'].get('value', None)
+                    else:
+                        health_data['sleepQuality'] = sleep.get('sleepQualityScore', None)
                 elif 'sleep' in sleep_data: # Legacy or alternative format
                     sleep = sleep_data['sleep']
                     health_data['sleepDuration'] = sleep.get('sleepTimeSeconds', 0) / 3600 if sleep.get('sleepTimeSeconds') else None
@@ -126,7 +128,7 @@ def get_health_metrics(client, date):
                 if isinstance(stress_data, list) and stress_data:
                     stress_data = stress_data[0]
                 
-                health_data['stressAvg'] = stress_data.get('averageStressLevel', None)
+                health_data['stressAvg'] = stress_data.get('avgStressLevel', stress_data.get('averageStressLevel'))
                 health_data['stressMax'] = stress_data.get('maxStressLevel', None)
                 health_data['stressRestDuration'] = stress_data.get('restStressDuration', None)
                 health_data['stressLowDuration'] = stress_data.get('lowStressDuration', None)
@@ -143,11 +145,24 @@ def get_health_metrics(client, date):
                 if isinstance(body_battery, list) and body_battery:
                     body_battery = body_battery[0]
                 
+                # Try to get summary values first
                 health_data['bodyBatteryAvg'] = body_battery.get('averageBodyBattery', None)
                 health_data['bodyBatteryMax'] = body_battery.get('maxBodyBattery', None)
                 health_data['bodyBatteryMin'] = body_battery.get('minBodyBattery', None)
+                
+                # If summary values are missing, calculate from values array
+                if health_data['bodyBatteryMax'] is None and 'bodyBatteryValuesArray' in body_battery:
+                    values = [v[1] for v in body_battery['bodyBatteryValuesArray'] if v[1] is not None]
+                    if values:
+                        health_data['bodyBatteryMax'] = max(values)
+                        health_data['bodyBatteryMin'] = min(values)
+                        health_data['bodyBatteryAvg'] = sum(values) / len(values)
+                    else:
+                        logger.info(f"Body battery values array empty for {date}")
+                elif health_data['bodyBatteryMax'] is None:
+                    logger.info(f"No body battery summary or values array for {date}. Keys: {list(body_battery.keys())}")
         except Exception as e:
-            logger.debug(f"Could not fetch body battery for {date}: {e}")
+            logger.info(f"Could not fetch body battery for {date}: {e}")
         
         # Resting heart rate
         try:
@@ -163,17 +178,13 @@ def get_health_metrics(client, date):
         except Exception as e:
             logger.debug(f"Could not fetch RHR for {date}: {e}")
         
-        # Steps
+        # Daily steps
         try:
-            # get_daily_steps requires start and end date
-            steps = client.get_daily_steps(date, date)
-            if steps:
-                # API returns a list of dicts
-                if isinstance(steps, list) and steps:
-                    steps = steps[0]
-                health_data['dailySteps'] = steps.get('steps', None)
+            steps_data = client.get_daily_steps(date, date)
+            if steps_data:
+                health_data['dailySteps'] = steps_data[-1].get('totalSteps', None)
         except Exception as e:
-            logger.debug(f"Could not fetch steps for {date}: {e}")
+            logger.debug(f"Could not fetch daily steps for {date}: {e}")
         
         return health_data
     except Exception as e:
