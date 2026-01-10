@@ -300,7 +300,7 @@ def enhance_activity(client, activity, needs_health, needs_readiness, needs_gps,
         # Return existing or base activity on error
         return existing if existing else activity
 
-def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks"):
+def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_tracks", start_date="2000-01-01"):
     """
     Fetches activities from Garmin Connect and saves them to a CSV file.
     Includes health metrics, training readiness, and GPS tracks.
@@ -311,6 +311,7 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         password: Garmin Connect password
         output_file: Path to output CSV file
         gps_tracks_dir: Directory for GPS track files (default: "gps_tracks")
+        start_date: Start date for fetching activities (default: "2000-01-01")
     """
     try:
         logger.info("Authenticating with Garmin Connect...")
@@ -324,7 +325,7 @@ def export_garmin_data(username, password, output_file, gps_tracks_dir="gps_trac
         logger.info(f"Found {len(existing_activities)} existing activities in CSV.")
 
         # Get activities for a wide range
-        start_date = "2000-01-01"
+        # start_date is now passed as an argument
         end_date = datetime.date.today().isoformat()
         
         logger.info(f"Fetching activity list from {start_date} to {end_date}...")

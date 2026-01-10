@@ -26,12 +26,20 @@ def main():
         username = input("Enter Garmin Connect Username: ")
         password = getpass.getpass("Enter Garmin Connect Password: ")
     
+    start_date_input = input("\nStart date (YYYY-MM-DD or YYYY, or press Enter for 2000-01-01): ").strip()
+    start_date = "2000-01-01"
+    if start_date_input:
+        if len(start_date_input) == 4 and start_date_input.isdigit():
+            start_date = f"{start_date_input}-01-01"
+        else:
+            start_date = start_date_input
+
     if choice in ['1', '3']:
         # Export activities
         output_file = "garmin_stats.csv"
         print("\n--- Starting Activity Export ---")
         try:
-            export_garmin_data(username, password, output_file)
+            export_garmin_data(username, password, output_file, start_date=start_date)
             print(f"\n✓ Activities saved to {output_file}")
         except Exception as e:
             print(f"✗ Activity export failed: {e}")
@@ -44,10 +52,6 @@ def main():
         print("\n--- Starting Daily Health Data Export ---")
         print("This will export health metrics for ALL days (including rest days).")
         print("This may take a while depending on the date range...")
-        
-        start_date = input("Start date (YYYY-MM-DD, or press Enter for 2000-01-01): ").strip()
-        if not start_date:
-            start_date = "2000-01-01"
         
         end_date = input("End date (YYYY-MM-DD, or press Enter for today): ").strip()
         if not end_date:
